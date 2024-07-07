@@ -263,30 +263,131 @@ cmeans_conti_2 <- subset(bd, cmeans_conti == 2)
 summary(cmeans_conti_1)
 summary(cmeans_conti_2)
 
-## Índices de validación para C-means
-fuzzy_index <- c(1.1,1.2,1.4,1.6,1.8,2)
-
-xb_conti <- c()
-fs_conti <- c()
-pc_conti <- c()
-pe_conti <- c()
-
-for (j in 1:length(fuzzy_index)) {
-  model <- cmeans(env_mim_coer,2,FALSE,iter.max = 100,dist = "euclidean",method = "cmeans",fuzzy_index[j])
-  xb_conti <- c(xb_conti,fclustIndex(model,env_mim_coer,"xie.beni"))
-  fs_conti <- c(fs_conti,fclustIndex(model,env_mim_coer,"fukuyama.sugeno"))
-  pc_conti <- c(pc_conti,fclustIndex(model,env_mim_coer,"partition.coefficient"))
-  pe_conti <- c(pe_conti,fclustIndex(model,env_mim_coer,"partition.entropy"))
+## ÍNDICES DE VALIDACIÓN C-means
+### Fukuyama Sugeno
+# Declarar función con parámetros
+fukuyama_sugeno_indice <- function(datos, centros, miembro, m = 2) {
+  n <- nrow(datos)
+  c <- nrow(centros)
   
+  # Calcular el centroide global
+  centroide_centro <- colMeans(datos)
+  # Inicializar sumas para numerador y denominador
+  numerador <- 0
+  denominador <- 0
+  #Calculo del índice Fukuyama
+  for (i in 1:n) {
+    for (j in 1:c) {
+      d_ij <- sqrt(sum((datos[i, ] - centros[j, ])^2))
+      numerador <- numerador + (miembro[i, j]^m) * d_ij^2
+    }
+  }
+  for (j in 1:c) {
+    d_jG <- sqrt(sum((centros[j, ] - centroide_centro)^2))
+    denominador <- denominador + d_jG^2
+  }
+  indice <- numerador - denominador
+  return(indice)
 }
-print(xb_conti)
-print(fs_conti)
-print(pc_conti)
-print(pe_conti)
+optimal_clusters_fukuyama_sugeno <- function(datos, max_clusters = 10) {
+  indices <- numeric(max_clusters - 1)
+  m <- 2
+  #Realiza el cluster cmeans para cada indice
+  for (k in 2:max_clusters) {
+    clustering_result <- cmeans(datos, centros = k, m = m, iter.max = 100, verbose = FALSE)
+    centros <- clustering_result$centros
+    miembro <- clustering_result$miembro
+    indices[k - 1] <- fukuyama_sugeno_indice(datos, centros, miembro, m)
+  }
+  #Nº que minimiza el índice
+  optimal_clusters <- which.min(indices) + 1 
+  #Gráfica de la función
+  plot(2:max_clusters, indices, type = "b", pch = 19, frame = FALSE,
+       xlab = "Número de Clústeres", ylab = "Fukuyama-Sugeno indice",
+       main = "Fukuyama-Sugeno para determinar el número óptimo de clústeres")
+  return(optimal_clusters)
+}
+# Muestra el nº óptimo
+optimal_result_fukuyama <- optimal_clusters_fukuyama_sugeno(env_mim_coer_pca)
+optimal_result_fukuyama
+
+### Xie-Beni
+# Declarar función con parámetros
+xie_beni_indice <- function(datos, cmeans_result) {
+  U <- cmeans_result$miembro
+  centros <- cmeans_result$centros
+  N <- nrow(datos)
+  K <- ncol(U)
+  
+  # Cálculo del índice
+  numerador <- sum(sapply(1:N, function(i) {
+    sum(U[i, ]^2 * colSums((t(centros) - datos[i, ])^2))
+  }))
+  min_dist <- min(dist(centros, method = "euclidean"))
+  denominador <- N * min_dist^2
+  numerador / denominador
+}
+
+optimal_clusters_xie <- function(datos, max_clusters = 10) {
+  xie_beni_vals <- numeric(max_clusters - 1)
+  #Realiza el cluster cmeans para cada indice
+  for (k in 2:max_clusters) {
+    cmeans_result <- cmeans(datos, centros = k, iter.max = 100, verbose = FALSE)
+    xie_beni_vals[k - 1] <- xie_beni_indice(datos, cmeans_result)
+  }
+  
+  # Gráfica de la función
+  plot(2:max_clusters, xie_beni_vals, type = "b", pch = 19, frame = FALSE,
+       xlab = "Número de Clústeres", ylab = "Xie-Beni indice",
+       main = "Xie-Beni para determinar el número óptimo de clústeres")
+  #Nº que minimiza el índice
+  list(xie_beni = which.min(xie_beni_vals) + 1)
+}
+#Nº que minimiza el índice
+optimal_result_xie <- optimal_clusters_xie(env_mim_coer_pca)
+optimal_result_xie
+
+### Coeficiente de entropia y partición
+# Declarar función con parámetros
+entropia_indice <- function(U) {
+  -sum(U * log(U + 1e-10)) / nrow(U)
+}
+
+particion_coefficient <- function(U) {
+  sum(U^2) / nrow(U)
+}
+
+optimal_clusters_coefficients <- function(datos, max_clusters = 10) {
+  entropia_vals <- numeric(max_clusters - 1)
+  particion_vals <- numeric(max_clusters - 1)
+  
+  for (k in 2:max_clusters) {
+    cmeans_result <- cmeans(datos, centros = k, iter.max = 100, verbose = FALSE)
+    U <- cmeans_result$miembro
+    entropia_vals[k - 1] <- entropia_indice(U)
+    particion_vals[k - 1] <- particion_coefficient(U)
+  }
+  
+  # Gráfica de la función Entropía
+  plot(2:max_clusters, entropia_vals, type = "b", pch = 19, frame = FALSE,
+       xlab = "Número de Clústeres", ylab = "Coeficiente de Entropía",
+       main = "Coeficiente de Entropía para determinar el número óptimo de clústeres")
+  
+  # Gráfica de la función Coeficiente de Partición
+  plot(2:max_clusters, particion_vals, type = "b", pch = 19, frame = FALSE,
+       xlab = "Número de Clústeres", ylab = "Coeficiente de Partición",
+       main = "Coeficiente de Partición para determinar el número óptimo de clústeres")
+  
+  list(entropia = which.min(entropia_vals) + 1, particion = which.max(particion_vals) + 1)
+}
+#Nº que devuelve el índice
+optimal_result_coefficients <- optimal_clusters_coefficients(env_mim_coer_pca)
+optimal_result_coefficients
+
 
 ## jerárquico
 set.seed(100)
-hcut_conti_cluster <- hcut(env_mim_coer_pca, 3, iter.max = 8)
+hcut_conti_cluster <- hcut(env_mim_coer_pca, 2, iter.max = 8)
 table(hcut_conti_cluster$cluster)
 hcut_conti_cluster
 
@@ -375,7 +476,7 @@ fviz_cluster(list(data = env_mim_coer_pca, cluster = pam_conti_cluster$cluster),
              geom = "point",
              ellipse.type = "norm",
              show.clust.cent = TRUE,
-             main = "Visualización de Clústeres usando K-Means",
+             main = "Visualización de Clústeres usando PAM",
              xlab = "Primera Dimensión",
              ylab = "Segunda Dimensión")
 
@@ -384,20 +485,11 @@ fviz_cluster(list(data = env_mim_coer_pca, cluster = cmeans_conti_cluster$cluste
              geom = "point",
              ellipse.type = "norm",
              show.clust.cent = TRUE,
-             main = "Visualización de Clústeres usando K-Means",
+             main = "Visualización de Clústeres usando C-Means",
              xlab = "Primera Dimensión",
              ylab = "Segunda Dimensión")
 
 # MIXTAS
-## K-modes
-fviz_cluster(list(data = mixtas, cluster = kmodes_mixto_cluster$cluster),
-             geom = "point",
-             ellipse.type = "norm",
-             show.clust.cent = TRUE,
-             main = "Visualización de Clústeres usando K-Modes",
-             xlab = "Primera Dimensión",
-             ylab = "Segunda Dimensión")
-
 ## K-means
 fviz_cluster(list(data = mixtas, cluster = kmeans_mixto_cluster$cluster),
              geom = "point",
@@ -413,15 +505,6 @@ fviz_cluster(list(data = mixtas, cluster = pam_mixto_cluster$cluster),
              ellipse.type = "norm",
              show.clust.cent = TRUE,
              main = "Visualización de Clústeres usando PAM",
-             xlab = "Primera Dimensión",
-             ylab = "Segunda Dimensión")
-
-## C-Means
-fviz_cluster(list(data = mixtas, cluster = cmeans_mixto_cluster$cluster),
-             geom = "point",
-             ellipse.type = "norm",
-             show.clust.cent = TRUE,
-             main = "Visualización de Clústeres usando C-Means",
              xlab = "Primera Dimensión",
              ylab = "Segunda Dimensión")
 
